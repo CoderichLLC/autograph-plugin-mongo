@@ -16,12 +16,9 @@ module.exports = class MongoDriver {
 
   resolve(query) {
     query.options = { ...this.#config.query, ...query.options };
+    query.where = MongoDriver.normalizeWhereClause(query.where);
     if (query.flags.debug) console.log(inspect(query, { showHidden: false, colors: true, depth: 3 }));
-
-    return Util.promiseRetry(() => this[query.op](query).then((result) => {
-      if (query.flags.debug) console.log(inspect(result, { showHidden: false, colors: true }));
-      return result;
-    }), 5, 5, e => e.hasErrorLabel && e.hasErrorLabel('TransientTransactionError'));
+    return Util.promiseRetry(() => this[query.op](query), 5, 5, e => e.hasErrorLabel && e.hasErrorLabel('TransientTransactionError'));
   }
 
   findOne(query) {
@@ -97,6 +94,13 @@ module.exports = class MongoDriver {
         rollback: { value: () => close('abortTransaction') },
       });
     });
+  }
+
+  static normalizeWhereClause(where) {
+    return Util.unflatten(Object.entries(Util.flatten(where, { safe: true })).reduce((prev, [key, value]) => {
+      if (Array.isArray(value)) return Object.assign(prev, { [key]: { $in: value } });
+      return Object.assign(prev, { [key]: value });
+    }, {}), { safe: true });
   }
 
   static aggregateJoin(query, join, id) {
