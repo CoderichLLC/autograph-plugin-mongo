@@ -16,7 +16,7 @@ module.exports = class MongoDriver {
 
   resolve(query) {
     query.options = { ...this.#config.query, ...query.options };
-    query.where = MongoDriver.normalizeWhereClause(query.where);
+    if (!query.isNative) query.where = MongoDriver.normalizeWhereClause(query.where);
     if (query.flags.debug) console.log(inspect(query, { showHidden: false, colors: true, depth: 3 }));
     return Util.promiseRetry(() => this[query.op](query), 5, 5, e => e.hasErrorLabel && e.hasErrorLabel('TransientTransactionError'));
   }
@@ -97,10 +97,10 @@ module.exports = class MongoDriver {
   }
 
   static normalizeWhereClause(where) {
-    return Util.unflatten(Object.entries(Util.flatten(where, { safe: true })).reduce((prev, [key, value]) => {
+    return Object.entries(Util.flatten(where, { safe: true })).reduce((prev, [key, value]) => {
       if (Array.isArray(value)) return Object.assign(prev, { [key]: { $in: value } });
       return Object.assign(prev, { [key]: value });
-    }, {}), { safe: true });
+    }, {});
   }
 
   static aggregateJoin(query, join, id) {
@@ -164,8 +164,9 @@ module.exports = class MongoDriver {
   }
 
   static convertFieldsForRegex($schema, model, where, forceArray) {
-    return Object.entries(where).reduce((prev, [key, value]) => {
+    return Object.entries(where).reduce((prev, [key, mixed]) => {
       const field = $schema(`${model}.${key}`);
+      const [value] = Object.values(Util.flatten({ mixed }, { safe: true }));
 
       if (Util.ensureArray(value).some(el => el instanceof RegExp)) {
         const conversion = forceArray || field.isArray ? { $map: { input: `$${key}`, as: 'el', in: { $toString: '$$el' } } } : { $toString: `$${key}` };
