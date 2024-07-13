@@ -2,7 +2,7 @@ const { inspect } = require('util');
 const Util = require('@coderich/util');
 const { MongoClient } = require('mongodb');
 
-module.exports = class MongoDriver {
+module.exports = class MongoAdapter {
   #config;
   #mongoClient;
   #connection;
@@ -16,7 +16,7 @@ module.exports = class MongoDriver {
 
   resolve(query) {
     query.options = { ...this.#config.query, ...query.options };
-    if (!query.isNative) query.where = MongoDriver.normalizeWhereClause(query.where);
+    if (!query.isNative) query.where = MongoAdapter.normalizeWhereClause(query.where);
     if (query.flags.debug) console.log(inspect(query, { showHidden: false, colors: true, depth: 3 }));
     return Util.promiseRetry(() => this[query.op](query), 5, 5, e => e.hasErrorLabel && e.hasErrorLabel('TransientTransactionError'));
   }
@@ -26,12 +26,12 @@ module.exports = class MongoDriver {
   }
 
   findMany(query) {
-    const $aggregate = MongoDriver.aggregateQuery(query);
+    const $aggregate = MongoAdapter.aggregateQuery(query);
     return this.collection(query.model).aggregate($aggregate, query.options).then(cursor => cursor.toArray());
   }
 
   count(query) {
-    const $aggregate = MongoDriver.aggregateQuery(query, true);
+    const $aggregate = MongoAdapter.aggregateQuery(query, true);
     return this.collection(query.model).aggregate($aggregate, query.options).then((cursor) => {
       return cursor.next().then((doc) => {
         return doc ? doc.count : 0;
@@ -110,7 +110,7 @@ module.exports = class MongoDriver {
     const op = join.isArray ? '$in' : '$eq';
     $match.$expr = { [op]: [`$${foreignField}`, `$$${varName}`] };
     const pipeline = [{ $match }];
-    // const $addFields = MongoDriver.convertFieldsForRegex(query.$schema, from, $match, true);
+    // const $addFields = MongoAdapter.convertFieldsForRegex(query.$schema, from, $match, true);
     // if (Object.keys($addFields).length) pipeline.unshift({ $addFields });
     return [
       {
@@ -130,11 +130,11 @@ module.exports = class MongoDriver {
   static aggregateJoins(query, joins = []) {
     const [join, ...pipeline] = joins;
     const { as } = join;
-    const $aggregate = MongoDriver.aggregateJoin(query, join, 0);
+    const $aggregate = MongoAdapter.aggregateJoin(query, join, 0);
     let pointer = $aggregate[0].$lookup.pipeline;
 
     pipeline.forEach((j, i) => {
-      const $agg = MongoDriver.aggregateJoin(query, j, i + 1);
+      const $agg = MongoAdapter.aggregateJoin(query, j, i + 1);
       pointer.push(...$agg);
       pointer = $agg[0].$lookup.pipeline;
     });
@@ -194,14 +194,14 @@ module.exports = class MongoDriver {
   static aggregateQuery(query, count = false) {
     const { model, select, where, sort = {}, skip, limit, joins, after, before, first, isNative } = query;
     const $aggregate = [{ $match: where }];
-    const $addFields = isNative ? {} : MongoDriver.convertFieldsForRegex(query.$schema, model, where);
-    const $sort = MongoDriver.convertFieldsForSort(query.$schema, model, sort);
+    const $addFields = isNative ? {} : MongoAdapter.convertFieldsForRegex(query.$schema, model, where);
+    const $sort = MongoAdapter.convertFieldsForSort(query.$schema, model, sort);
 
     // Regex addFields
     if (Object.keys($addFields).length) $aggregate.unshift({ $addFields });
 
     // Joins
-    if (joins?.length) $aggregate.push(...MongoDriver.aggregateJoins(query, joins));
+    if (joins?.length) $aggregate.push(...MongoAdapter.aggregateJoins(query, joins));
 
     if (count) {
       $aggregate.push({ $count: 'count' });
@@ -209,7 +209,7 @@ module.exports = class MongoDriver {
       // // This is needed to return FK references as an array in the correct order
       // // http://www.kamsky.org/stupid-tricks-with-mongodb/using-34-aggregation-to-return-documents-in-same-order-as-in-expression
       // // https://jira.mongodb.org/browse/SERVER-7528
-      // const idKey = MongoDriver.idKey();
+      // const idKey = MongoAdapter.idKey();
       // const idMatch = $match[idKey];
       // if (typeof idMatch === 'object' && idMatch.$in) {
       //   $aggregate.push({ $addFields: { __order: { $indexOfArray: [idMatch.$in, `$${idKey}`] } } });
