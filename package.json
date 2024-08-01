@@ -1,6 +1,6 @@
 {
   "name": "@coderich/autograph-mongodb",
-  "version": "1.0.0",
+  "version": "4.0.0",
   "engines": {
     "node": ">=12.0.0"
   },
