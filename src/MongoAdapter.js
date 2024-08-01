@@ -96,7 +96,7 @@ module.exports = class MongoAdapter {
     });
   }
 
-  static normalizeWhereClause(where) {
+  static normalizeWhereClause(where = {}) {
     return Object.entries(Util.flatten(where, { safe: true })).reduce((prev, [key, value]) => {
       if (Array.isArray(value)) return Object.assign(prev, { [key]: { $in: value } });
       return Object.assign(prev, { [key]: value });
@@ -198,13 +198,28 @@ module.exports = class MongoAdapter {
     const $sort = MongoAdapter.convertFieldsForSort(query.$schema, model, sort);
 
     // Regex addFields
-    if (Object.keys($addFields).length) $aggregate.unshift({ $addFields });
+    if (Object.keys($addFields).length) {
+      $aggregate.unshift({ $addFields });
+    }
 
     // Joins
     if (joins?.length) $aggregate.push(...MongoAdapter.aggregateJoins(query, joins));
 
     if (count) {
-      $aggregate.push({ $count: 'count' });
+      $aggregate.push(
+        {
+          $group: {
+            _id: null,
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            count: 1,
+          },
+        },
+      );
     } else {
       // // This is needed to return FK references as an array in the correct order
       // // http://www.kamsky.org/stupid-tricks-with-mongodb/using-34-aggregation-to-return-documents-in-same-order-as-in-expression
